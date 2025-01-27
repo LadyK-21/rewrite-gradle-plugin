@@ -1,6 +1,9 @@
+import nl.javadude.gradle.plugins.license.LicenseExtension
+import java.util.*
+
 plugins {
-    `java-gradle-plugin`
-    groovy
+    `groovy-gradle-plugin`
+    id("com.github.hierynomus.license") version "0.16.1"
 }
 
 gradlePlugin {
@@ -15,24 +18,39 @@ gradlePlugin {
 }
 
 repositories {
-    mavenLocal()
-    maven {
-        url = uri("https://oss.sonatype.org/content/repositories/snapshots")
+    if (!project.hasProperty("releasing")) {
+        mavenLocal()
+        maven {
+            url = uri("https://oss.sonatype.org/content/repositories/snapshots")
+        }
     }
+
     mavenCentral()
 }
 
-
-// Fixed version numbers because com.gradle.plugin-publish will publish poms with requested rather than resolved versions
-val prometheusVersion = "1.4.0"
-val nettyVersion = "1.1.2"
-
 dependencies {
-    api("io.micrometer.prometheus:prometheus-rsocket-client:$prometheusVersion")
-    api("io.rsocket:rsocket-transport-netty:$nettyVersion")
+    api("io.micrometer.prometheus:prometheus-rsocket-client:latest.release")
+    api("io.rsocket:rsocket-transport-netty:latest.release")
 
-    testImplementation(gradleTestKit())
+    implementation(platform("io.netty:netty-bom:latest.release"))
+    implementation("io.projectreactor.netty:reactor-netty-core:latest.release")
+    implementation("io.projectreactor.netty:reactor-netty-http:latest.release")
+    implementation("com.google.guava:guava:latest.release")
+
+    runtimeOnly("org.xerial.snappy:snappy-java:latest.release")
+
     testImplementation(localGroovy())
-    testImplementation(platform("org.spockframework:spock-bom:2.0-groovy-3.0"))
-    testImplementation("org.spockframework:spock-core")
+    testImplementation("org.spockframework:spock-core:2.0-groovy-3.0") {
+        exclude(group = "org.codehaus.groovy")
+    }
+}
+
+configure<LicenseExtension> {
+    ext.set("year", Calendar.getInstance().get(Calendar.YEAR))
+    skipExistingHeaders = true
+    header = project.rootProject.file("gradle/licenseHeader.txt")
+    mapping(mapOf("kt" to "SLASHSTAR_STYLE", "java" to "SLASHSTAR_STYLE"))
+    strictCheck = true
+    exclude("**/versions.properties")
+    exclude("**/*.txt")
 }

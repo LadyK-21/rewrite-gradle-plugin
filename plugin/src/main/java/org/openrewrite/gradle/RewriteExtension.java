@@ -1,5 +1,5 @@
 /*
- * Copyright ${year} the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,92 +15,361 @@
  */
 package org.openrewrite.gradle;
 
+import org.gradle.api.Project;
+
 import javax.annotation.Nullable;
 import javax.inject.Provider;
 import java.io.File;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.*;
 
-public interface RewriteExtension {
-    void setConfigFile(File configFile);
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyMap;
 
-    void setConfigFile(String configFilePath);
+@SuppressWarnings("unused")
+public class RewriteExtension {
+    private static final String magicalMetricsLogString = "LOG";
 
-    void setCheckstyleConfigFile(File configFile);
+    private final List<String> activeRecipes = new ArrayList<>();
+    private final List<String> activeStyles = new ArrayList<>();
+    private boolean configFileSetDeliberately;
+
+    protected final Project project;
+    private File configFile;
 
     @Nullable
-    File getCheckstyleConfigFile();
+    private Provider<File> checkstyleConfigProvider;
 
-    Map<String, Object> getCheckstyleProperties();
+    @Nullable
+    private Provider<Map<String, Object>> checkstylePropertiesProvider;
 
-    boolean getConfigFileSetDeliberately();
+    @Nullable
+    private File checkstyleConfigFile;
+    private String metricsUri = magicalMetricsLogString;
+    private boolean enableExperimentalGradleBuildScriptParsing = true;
+    private boolean exportDatatables;
+    private final List<String> exclusions = new ArrayList<>();
+    private final List<String> plainTextMasks = new ArrayList<>();
 
-    File getConfigFile();
+    private int sizeThresholdMb = 10;
 
-    void enableRouteMetricsToLog();
+    @Nullable
+    private String rewriteVersion;
 
-    boolean isRouteMetricsToLog();
+    @Nullable
+    private Properties versionProps;
 
-    String getMetricsUri();
+    private boolean logCompilationWarningsAndErrors;
 
-    void setMetricsUri(String value);
+    /**
+     * Whether to throw an exception if an activeRecipe fails configuration validation.
+     * This may happen if the activeRecipe is improperly configured, or any downstream recipes are improperly configured.
+     * <p>
+     * For the time, this default is "false" to prevent one improperly recipe from failing the build.
+     * In the future, this default may be changed to "true" to be more restrictive.
+     */
+    private boolean failOnInvalidActiveRecipes;
 
-    void activeRecipe(String... recipes);
+    private boolean failOnDryRunResults;
 
-    void clearActiveRecipes();
+    private boolean throwOnParseFailures;
 
-    void setActiveRecipes(List<String> activeRecipes);
+    @SuppressWarnings("unused")
+    public RewriteExtension(Project project) {
+        this.project = project;
+        configFile = project.file("rewrite.yml");
+    }
 
-    void activeStyle(String... styles);
+    public void setConfigFile(File configFile) {
+        configFileSetDeliberately = true;
+        this.configFile = configFile;
+    }
 
-    void clearActiveStyles();
+    public void setConfigFile(String configFilePath) {
+        configFileSetDeliberately = true;
+        configFile = project.file(configFilePath);
+    }
 
-    void setActiveStyles(List<String> activeStyles);
+    public void setCheckstyleConfigFile(File configFile) {
+        this.checkstyleConfigFile = configFile;
+    }
 
-    List<String> getActiveStyles();
+    /**
+     * Will prefer to return an explicitly configured checkstyle configuration file location.
+     * If none has been specified, will attempt to auto-detect an appropriate file.
+     */
+    public @org.jspecify.annotations.Nullable @Nullable File getCheckstyleConfigFile() {
+        if (checkstyleConfigFile == null && checkstyleConfigProvider != null) {
+            try {
+                return checkstyleConfigProvider.get();
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return checkstyleConfigFile;
+    }
 
-    List<String> getActiveRecipes();
+    public Map<String, Object> getCheckstyleProperties() {
+        if (checkstyleConfigProvider == null) {
+            return emptyMap();
+        }
+        return checkstylePropertiesProvider.get();
+    }
 
-    String getRewriteVersion();
+    /**
+     * Supplying a rewrite configuration file is optional, so if it doesn't exist it isn't an error or a warning.
+     * But if the user has deliberately specified a different location from the default, that seems like a reasonable
+     * signal that the file should be expected to exist. So this signal can be used to decide if a warning should be
+     * displayed if the specified file cannot be found.
+     */
+    public boolean getConfigFileSetDeliberately() {
+        return configFileSetDeliberately;
+    }
 
-    String getCheckstyleToolsVersion();
+    public File getConfigFile() {
+        return configFile;
+    }
 
-    void setRewriteVersion(String value);
+    public void enableRouteMetricsToLog() {
+        metricsUri = magicalMetricsLogString;
+    }
 
-    boolean getFailOnInvalidActiveRecipes();
+    public boolean isRouteMetricsToLog() {
+        return metricsUri.equals(magicalMetricsLogString);
+    }
 
-    void setFailOnInvalidActiveRecipes(boolean failOnInvalidActiveRecipes);
+    public String getMetricsUri() {
+        return metricsUri;
+    }
 
-    boolean getFailOnDryRunResults();
+    public void setMetricsUri(String value) {
+        metricsUri = value;
+    }
 
-    void setFailOnDryRunResults(boolean failOnDryRunResults);
+    public void activeRecipe(String... recipes) {
+        activeRecipes.addAll(asList(recipes));
+    }
 
-    boolean getLogCompilationWarningsAndErrors();
+    public void clearActiveRecipes() {
+        activeRecipes.clear();
+    }
 
-    void setLogCompilationWarningsAndErrors(boolean logCompilationWarningsAndErrors);
+    public void setActiveRecipes(List<String> activeRecipes) {
+        this.activeRecipes.clear();
+        this.activeRecipes.addAll(activeRecipes);
+    }
 
-    Provider<File> getCheckstyleConfigProvider();
+    public void activeStyle(String... styles) {
+        activeStyles.addAll(asList(styles));
+    }
 
-    void setCheckstyleConfigProvider(Provider<File> checkstyleConfigProvider);
+    public void clearActiveStyles() {
+        activeStyles.clear();
+    }
 
-    Provider<Map<String, Object>> getCheckstylePropertiesProvider();
+    public void setActiveStyles(List<String> activeStyles) {
+        this.activeRecipes.clear();
+        this.activeRecipes.addAll(activeStyles);
+    }
 
-    void setCheckstylePropertiesProvider(Provider<Map<String, Object>> checkstylePropertiesProvider);
+    public List<String> getActiveStyles() {
+        return activeStyles;
+    }
 
-    boolean isEnableExperimentalGradleBuildScriptParsing();
+    public List<String> getActiveRecipes() {
+        return activeRecipes;
+    }
 
-    void setEnableExperimentalGradleBuildScriptParsing(boolean enableExperimentalGradleBuildScriptParsing);
+    public Properties getVersionProps() {
+        if (versionProps == null) {
+            try (InputStream is = RewriteExtension.class.getResourceAsStream("/rewrite/versions.properties")) {
+                versionProps = new Properties();
+                versionProps.load(is);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return versionProps;
+    }
 
-    List<String> getExclusions();
+    /**
+     * Returns the version of rewrite core libraries to be used.
+     */
+    public String getRewriteVersion() {
+        if (rewriteVersion == null) {
+            return getVersionProps().getProperty("org.openrewrite:rewrite-core");
+        }
+        return rewriteVersion;
+    }
 
-    void exclusion(String... exclusions);
+    @Nullable
+    private String rewritePolyglotVersion;
+    public String getRewritePolyglotVersion() {
+        if (rewritePolyglotVersion == null) {
+            return getVersionProps().getProperty("org.openrewrite:rewrite-polyglot");
+        }
+        return rewritePolyglotVersion;
+    }
 
-    void exclusion(Collection<String> exclusions);
+    @Nullable
+    private String rewriteGradleModelVersion;
+    public String getRewriteGradleModelVersion() {
+        if (rewriteGradleModelVersion == null) {
+            rewriteGradleModelVersion = getVersionProps().getProperty("org.openrewrite.gradle.tooling:model");
+        }
+        return rewriteGradleModelVersion;
+    }
 
-    int getSizeThresholdMb();
+    @Nullable
+    private String rewriteKotlinVersion;
+    public String getRewriteKotlinVersion() {
+        if (rewriteKotlinVersion == null) {
+            rewriteKotlinVersion = getVersionProps().getProperty("org.openrewrite:rewrite-kotlin");
+        }
+        return rewriteKotlinVersion;
+    }
 
-    void setSizeThresholdMb(int thresholdMb);
+    public void setRewriteVersion(String value) {
+        rewriteVersion = value;
+    }
 
-    String getJacksonModuleKotlinVersion();
+    public boolean getFailOnInvalidActiveRecipes() {
+        return failOnInvalidActiveRecipes;
+    }
+
+    public void setFailOnInvalidActiveRecipes(boolean failOnInvalidActiveRecipes) {
+        this.failOnInvalidActiveRecipes = failOnInvalidActiveRecipes;
+    }
+
+    public boolean getFailOnDryRunResults() {
+        return this.failOnDryRunResults;
+    }
+
+    public void setFailOnDryRunResults(boolean failOnDryRunResults) {
+        this.failOnDryRunResults = failOnDryRunResults;
+    }
+
+    public boolean getLogCompilationWarningsAndErrors() {
+        return logCompilationWarningsAndErrors;
+    }
+
+    public void setLogCompilationWarningsAndErrors(boolean logCompilationWarningsAndErrors) {
+        this.logCompilationWarningsAndErrors = logCompilationWarningsAndErrors;
+    }
+
+    public Provider<File> getCheckstyleConfigProvider() {
+        return checkstyleConfigProvider;
+    }
+
+    public void setCheckstyleConfigProvider(Provider<File> checkstyleConfigProvider) {
+        this.checkstyleConfigProvider = checkstyleConfigProvider;
+    }
+
+    public Provider<Map<String, Object>> getCheckstylePropertiesProvider() {
+        return checkstylePropertiesProvider;
+    }
+
+    public void setCheckstylePropertiesProvider(Provider<Map<String, Object>> checkstylePropertiesProvider) {
+        this.checkstylePropertiesProvider = checkstylePropertiesProvider;
+    }
+
+    public boolean isEnableExperimentalGradleBuildScriptParsing() {
+        return enableExperimentalGradleBuildScriptParsing;
+    }
+
+    public void setEnableExperimentalGradleBuildScriptParsing(boolean enableExperimentalGradleBuildScriptParsing) {
+        this.enableExperimentalGradleBuildScriptParsing = enableExperimentalGradleBuildScriptParsing;
+    }
+
+    public boolean isExportDatatables() {
+        return exportDatatables;
+    }
+
+    public void setExportDatatables(boolean exportDatatables) {
+        this.exportDatatables = exportDatatables;
+    }
+
+    public List<String> getExclusions() {
+        return exclusions;
+    }
+
+    public void exclusion(String... exclusions) {
+        this.exclusions.addAll(asList(exclusions));
+    }
+
+    public void exclusion(Collection<String> exclusions) {
+        this.exclusions.addAll(exclusions);
+    }
+
+    public List<String> getPlainTextMasks() {
+        if (plainTextMasks.isEmpty()) {
+            plainTextMasks.addAll(Arrays.asList(
+                    "**/*.adoc",
+                    "**/*.aj",
+                    "**/*.bash",
+                    "**/*.bat",
+                    "**/CODEOWNERS",
+                    "**/*.css",
+                    "**/*.config",
+                    "**/Dockerfile*",
+                    "**/*.env",
+                    "**/.gitattributes",
+                    "**/.gitignore",
+                    "**/*.htm*",
+                    "**/gradlew",
+                    "**/.java-version",
+                    "**/*.jelly",
+                    "**/*.jsp",
+                    "**/*.ksh",
+                    "**/*.lock",
+                    "**/lombok.config",
+                    "**/*.md",
+                    "**/*.mf",
+                    "**/META-INF/services/**",
+                    "**/META-INF/spring/**",
+                    "**/META-INF/spring.factories",
+                    "**/mvnw",
+                    "**/*.qute.java",
+                    "**/.sdkmanrc",
+                    "**/*.sh",
+                    "**/*.sql",
+                    "**/*.svg",
+                    "**/*.tsx",
+                    "**/*.txt"
+            ));
+        }
+        return plainTextMasks;
+    }
+
+    public void plainTextMask(String... masks) {
+        this.plainTextMasks.addAll(asList(masks));
+    }
+
+    public void plainTextMask(Collection<String> masks) {
+        this.plainTextMasks.addAll(masks);
+    }
+
+    public int getSizeThresholdMb() {
+        return sizeThresholdMb;
+    }
+
+    public void setSizeThresholdMb(int thresholdMb) {
+        this.sizeThresholdMb = thresholdMb;
+    }
+
+    public String getJacksonModuleKotlinVersion() {
+        return getVersionProps().getProperty("com.fasterxml.jackson.module:jackson-module-kotlin");
+    }
+
+    public boolean getThrowOnParseFailures() {
+        if (project.getProperties().containsKey("rewrite.throwOnParseFailures")) {
+            return true;
+        }
+        return throwOnParseFailures;
+    }
+
+    public void setThrowOnParseFailures(boolean throwOnParseFailures) {
+        this.throwOnParseFailures = throwOnParseFailures;
+    }
 }

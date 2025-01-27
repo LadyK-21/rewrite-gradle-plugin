@@ -1,5 +1,5 @@
 /*
- * Copyright ${year} the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 package org.openrewrite.gradle;
 
 import org.gradle.api.Project;
-import org.openrewrite.config.RecipeDescriptor;
+import org.gradle.internal.service.ServiceRegistry;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
@@ -24,18 +25,20 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-@SuppressWarnings("unchecked")
 public class DelegatingProjectParser implements GradleProjectParser {
-    protected final Class<?> gppClass;
-    protected final Object gpp;
+    @Nullable
     protected static List<URL> rewriteClasspath;
+    @Nullable
     protected static RewriteClassLoader rewriteClassLoader;
-    protected static final Map<String, Object> astCache = new HashMap<>();
+    protected final GradleProjectParser gpp;
 
     public DelegatingProjectParser(Project project, RewriteExtension extension, Set<Path> classpath) {
         try {
@@ -49,35 +52,29 @@ public class DelegatingProjectParser implements GradleProjectParser {
                         }
                     })
                     .collect(Collectors.toList());
+
             @SuppressWarnings("ConstantConditions")
-            String path = getClass()
+            URL currentJar = jarContainingResource(getClass()
                     .getResource("/org/openrewrite/gradle/isolated/DefaultProjectParser.class")
-                    .toString();
-            URL currentJar = null;
-            if(path.startsWith("jar:")) {
-                path = path.substring(4);
-                int indexOfBang = path.indexOf("!");
-                if(indexOfBang != -1) {
-                    path = path.substring(0, indexOfBang);
-                }
-                currentJar = new URI(path).toURL();
-            } else if(path.endsWith(".class")) {
-                // This code path only gets taken when running the tests against older versions of Gradle
-                // In all other circumstances, "path" will point at a jar file
-                currentJar = Paths.get(System.getProperty("jarLocationForTest")).toUri().toURL();
-            }
-
+                    .toString());
             classpathUrls.add(currentJar);
-            if(rewriteClassLoader == null || !classpathUrls.equals(rewriteClasspath)) {
-                rewriteClassLoader = new RewriteClassLoader(classpathUrls);
+
+            ClassLoader pluginClassLoader = getPluginClassLoader(project);
+
+            if (rewriteClassLoader == null ||
+                    !classpathUrls.equals(rewriteClasspath) ||
+                    rewriteClassLoader.getPluginClassLoader() != pluginClassLoader) {
+                if (rewriteClassLoader != null) {
+                    rewriteClassLoader.close();
+                }
+                rewriteClassLoader = new RewriteClassLoader(classpathUrls, pluginClassLoader);
                 rewriteClasspath = classpathUrls;
-                astCache.clear();
             }
 
-            gppClass = Class.forName("org.openrewrite.gradle.isolated.DefaultProjectParser", true, rewriteClassLoader);
+            Class<?> gppClass = Class.forName("org.openrewrite.gradle.isolated.DefaultProjectParser", true, rewriteClassLoader);
             assert (gppClass.getClassLoader() == rewriteClassLoader) : "DefaultProjectParser must be loaded from RewriteClassLoader to be sufficiently isolated from Gradle's classpath";
-            gpp = gppClass.getDeclaredConstructor(Project.class, RewriteExtension.class, Map.class)
-                    .newInstance(project, extension, astCache);
+            gpp = (GradleProjectParser) gppClass.getDeclaredConstructor(Project.class, RewriteExtension.class)
+                    .newInstance(project, extension);
 
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -85,53 +82,80 @@ public class DelegatingProjectParser implements GradleProjectParser {
     }
 
     @Override
-    public SortedSet<String> getActiveRecipes() {
-        return unwrapInvocationException(() -> (SortedSet<String>) gppClass.getMethod("getActiveRecipes").invoke(gpp));
+    public List<String> getActiveRecipes() {
+        return unwrapInvocationException(gpp::getActiveRecipes);
     }
 
     @Override
-    public SortedSet<String> getActiveStyles() {
-        return unwrapInvocationException(() -> (SortedSet<String>) gppClass.getMethod("getActiveStyles").invoke(gpp));
+    public List<String> getActiveStyles() {
+        return unwrapInvocationException(gpp::getActiveStyles);
     }
 
     @Override
-    public SortedSet<String> getAvailableStyles() {
-        return unwrapInvocationException(() -> (SortedSet<String>) gppClass.getMethod("getAvailableStyles").invoke(gpp));
+    public List<String> getAvailableStyles() {
+        return unwrapInvocationException(gpp::getAvailableStyles);
     }
 
     @Override
-    public Collection<RecipeDescriptor> listRecipeDescriptors() {
-        return unwrapInvocationException(() -> (Collection<RecipeDescriptor>) gppClass.getMethod("listRecipeDescriptors").invoke(gpp));
+    public void discoverRecipes(ServiceRegistry serviceRegistry) {
+        unwrapInvocationException(() -> {
+            gpp.discoverRecipes(serviceRegistry);
+            return null;
+        });
     }
 
     @Override
-    public Collection<Path> listSources(Project project) {
-        return unwrapInvocationException(() -> (Collection<Path>) gppClass.getMethod("listSources").invoke(gpp));
+    public Collection<Path> listSources() {
+        return unwrapInvocationException(gpp::listSources);
     }
 
     @Override
-    public void run(boolean useAstCache, Consumer<Throwable> onError) {
-        unwrapInvocationException(() -> gppClass.getMethod("run", boolean.class, Consumer.class).invoke(gpp, useAstCache, onError));
+    public void run(Consumer<Throwable> onError) {
+        unwrapInvocationException(() -> {
+            gpp.run(onError);
+            return null;
+        });
     }
 
     @Override
-    public void dryRun(Path reportPath, boolean dumpGcActivity, boolean useAstCache, Consumer<Throwable> onError) {
-        unwrapInvocationException(() -> gppClass.getMethod("dryRun", Path.class, boolean.class, boolean.class, Consumer.class).invoke(gpp, reportPath, dumpGcActivity, useAstCache, onError));
-    }
-
-    @Override
-    public void clearAstCache() {
-        unwrapInvocationException(() -> gppClass.getMethod("clearAstCache").invoke(gpp));
+    public void dryRun(Path reportPath, boolean dumpGcActivity, Consumer<Throwable> onError) {
+        unwrapInvocationException(() -> {
+            gpp.dryRun(reportPath, dumpGcActivity, onError);
+            return null;
+        });
     }
 
     @Override
     public void shutdownRewrite() {
-        unwrapInvocationException(() -> gppClass.getMethod("shutdownRewrite").invoke(gpp));
+        unwrapInvocationException(() -> {
+            gpp.shutdownRewrite();
+            return null;
+        });
+    }
+
+    protected URL jarContainingResource(String resourcePath) {
+        try {
+            if (resourcePath.startsWith("jar:")) {
+                resourcePath = resourcePath.substring(4);
+                int indexOfBang = resourcePath.indexOf("!");
+                if (indexOfBang != -1) {
+                    resourcePath = resourcePath.substring(0, indexOfBang);
+                }
+                return new URI(resourcePath).toURL();
+            } else if (resourcePath.startsWith("file:")) {
+                return new URI(resourcePath.substring(0, resourcePath.lastIndexOf("/main/") + 6)).toURL();
+            }
+            // This code path only gets taken when running the tests against older versions of Gradle
+            // In all other circumstances, "path" will point at a jar file
+            return Paths.get(System.getProperty("jarLocationForTest")).toUri().toURL();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
-     * Bloating stacktraces with reflection errors isn't generally helpful for understanding what went wrong.
-     *
+     * Bloating stack traces with reflection errors isn't generally helpful for understanding what went wrong.
+     * <p>
      * This highlights the actual cause of a problem, allowing Gradle's console to display something useful like
      * "Recipe validation errors detected ..." rather than only "InvocationTargetException ..."
      */
@@ -139,7 +163,7 @@ public class DelegatingProjectParser implements GradleProjectParser {
         try {
             return supplier.call();
         } catch (InvocationTargetException e) {
-            if(e.getTargetException() instanceof RuntimeException) {
+            if (e.getTargetException() instanceof RuntimeException) {
                 throw (RuntimeException) e.getTargetException();
             } else {
                 throw new RuntimeException(e.getTargetException());
@@ -147,5 +171,30 @@ public class DelegatingProjectParser implements GradleProjectParser {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private ClassLoader getPluginClassLoader(Project project) {
+        ClassLoader pluginClassLoader = getAndroidPluginClassLoader(project);
+        if (pluginClassLoader == null) {
+            pluginClassLoader = getClass().getClassLoader();
+        }
+        return pluginClassLoader;
+    }
+
+    private @Nullable ClassLoader getAndroidPluginClassLoader(Project project) {
+        List<String> pluginIds = Arrays.asList(
+                "com.android.application",
+                "com.android.library",
+                "com.android.feature",
+                "com.android.dynamic-feature",
+                "com.android.test");
+
+        for (String pluginId : pluginIds) {
+            if (project.getPlugins().hasPlugin(pluginId)) {
+                Object plugin = project.getPlugins().getPlugin(pluginId);
+                return plugin.getClass().getClassLoader();
+            }
+        }
+        return null;
     }
 }

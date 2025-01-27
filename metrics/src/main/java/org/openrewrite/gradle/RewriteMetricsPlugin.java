@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -131,7 +131,7 @@ public class RewriteMetricsPlugin implements Plugin<Project> {
     }
 
     private String scrapeFromEachProject(Project rootProject) {
-        throw new RuntimeException("Not implemented. Put this back in once metrics have been wired back in to RewritePlugin");
+        throw new RuntimeException("Not implemented. Put this back in once metrics have been wired back into RewritePlugin");
 //        return rootProject.getAllprojects().stream()
 //                .flatMap(p -> p.getPlugins().withType(RewritePlugin.class).stream()
 //                        .map(plugin -> plugin.getMeterRegistry().scrape()))

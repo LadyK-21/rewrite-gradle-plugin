@@ -1,5 +1,5 @@
 /*
- * Copyright ${year} the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,12 +18,16 @@ package org.openrewrite.gradle
 import org.assertj.core.api.Assertions.assertThat
 import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.DisabledIf
 import org.junit.jupiter.api.io.TempDir
+import org.openrewrite.Issue
 import java.io.File
 
 class RewriteDiscoverTest : RewritePluginTest {
 
-    // "https://github.com/openrewrite/rewrite-gradle-plugin/issues/33"
+    override fun taskName(): String = "rewriteDiscover"
+
+    @Issue("https://github.com/openrewrite/rewrite-gradle-plugin/issues/33")
     @Test
     fun `rewriteDiscover prints recipes from external dependencies`(
         @TempDir projectDir: File
@@ -34,7 +38,7 @@ class RewriteDiscoverTest : RewritePluginTest {
                     id("java")
                     id("org.openrewrite.rewrite")
                 }
-                
+
                 repositories {
                     mavenLocal()
                     mavenCentral()
@@ -46,7 +50,7 @@ class RewriteDiscoverTest : RewritePluginTest {
                 dependencies {
                     rewrite("org.openrewrite.recipe:rewrite-testing-frameworks:latest.release")
                 }
-                
+
                 rewrite {
                      activeRecipe("org.openrewrite.java.testing.junit5.JUnit5BestPractices")
                      activeRecipe("org.openrewrite.java.format.AutoFormat")
@@ -55,8 +59,8 @@ class RewriteDiscoverTest : RewritePluginTest {
             """)
 
         }
-        val result = runGradle(projectDir, "rewriteDiscover")
-        val rewriteDiscoverResult = result.task(":rewriteDiscover")!!
+        val result = runGradle(projectDir, taskName())
+        val rewriteDiscoverResult = result.task(":${taskName()}")!!
         assertThat(rewriteDiscoverResult.outcome).isEqualTo(TaskOutcome.SUCCESS)
 
         assertThat(result.output).contains("Configured with 2 active recipes and 1 active styles.")

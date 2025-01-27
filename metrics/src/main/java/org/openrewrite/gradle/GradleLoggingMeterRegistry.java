@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,43 +58,36 @@ public class GradleLoggingMeterRegistry extends MeterRegistry {
                 .forEach(m -> {
                     Printer print = new Printer(m);
                     m.use(
-                            gauge -> log.info(print.id() + " value=" + print.value(gauge.value())),
+                            gauge -> log.info("{} value={}", print.id(), print.value(gauge.value())),
                             counter -> {
                                 double count = counter.count();
-                                log.info(print.id() + " count=" + print.count(count));
+                                log.info("{} count={}", print.id(), print.count(count));
                             },
                             timer -> {
                                 HistogramSnapshot snapshot = timer.takeSnapshot();
                                 long count = snapshot.count();
-                                log.info(print.id() + " count=" + print.unitlessCount(count) +
-                                        " mean=" + print.time(snapshot.mean(getBaseTimeUnit())) +
-                                        " max=" + print.time(snapshot.max(getBaseTimeUnit())));
+                                log.info("{} count={} mean={} max={}", print.id(), print.unitlessCount(count), print.time(snapshot.mean(getBaseTimeUnit())), print.time(snapshot.max(getBaseTimeUnit())));
                             },
                             summary -> {
                                 HistogramSnapshot snapshot = summary.takeSnapshot();
                                 long count = snapshot.count();
-                                log.info(print.id() + " count=" + print.unitlessCount(count) +
-                                        " mean=" + print.value(snapshot.mean()) +
-                                        " max=" + print.value(snapshot.max()));
+                                log.info("{} count={} mean={} max={}", print.id(), print.unitlessCount(count), print.value(snapshot.mean()), print.value(snapshot.max()));
                             },
                             longTaskTimer -> {
                                 int activeTasks = longTaskTimer.activeTasks();
-                                log.info(print.id() +
-                                        " active=" + print.value(activeTasks) +
-                                        " duration=" + print.time(longTaskTimer.duration(getBaseTimeUnit())));
+                                log.info("{} active={} duration={}", print.id(), print.value(activeTasks), print.time(longTaskTimer.duration(getBaseTimeUnit())));
                             },
                             timeGauge -> {
                                 double value = timeGauge.value(getBaseTimeUnit());
-                                log.info(print.id() + " value=" + print.time(value));
+                                log.info("{} value={}", print.id(), print.time(value));
                             },
                             counter -> {
                                 double count = counter.count();
-                                log.info(print.id() + " count=" + print.count(count));
+                                log.info("{} count={}", print.id(), print.count(count));
                             },
                             timer -> {
                                 double count = timer.count();
-                                log.info(print.id() + " count=" + print.count(count) +
-                                        " mean=" + print.time(timer.mean(getBaseTimeUnit())));
+                                log.info("{} count={} mean={}", print.id(), print.count(count), print.time(timer.mean(getBaseTimeUnit())));
                             },
                             meter -> log.info(writeMeter(meter, print))
                     );
@@ -122,47 +115,38 @@ public class GradleLoggingMeterRegistry extends MeterRegistry {
                 .collect(joining(", ", print.id() + " ", ""));
     }
 
-    @Override
     protected Timer newTimer(Meter.Id id, DistributionStatisticConfig distributionStatisticConfig, PauseDetector pauseDetector) {
         return new CumulativeTimer(id, clock, distributionStatisticConfig, pauseDetector, getBaseTimeUnit(), false);
     }
 
-    @Override
     protected DistributionSummary newDistributionSummary(Meter.Id id, DistributionStatisticConfig distributionStatisticConfig, double scale) {
         return new CumulativeDistributionSummary(id, clock, distributionStatisticConfig, scale, false);
     }
 
-    @Override
     protected Counter newCounter(Meter.Id id) {
         return new CumulativeCounter(id);
     }
 
-    @Override
     protected <T> Gauge newGauge(Meter.Id id, T obj, ToDoubleFunction<T> valueFunction) {
         return new DefaultGauge<>(id, obj, valueFunction);
     }
 
-    @Override
     protected <T> FunctionTimer newFunctionTimer(Meter.Id id, T obj, ToLongFunction<T> countFunction, ToDoubleFunction<T> totalTimeFunction, TimeUnit totalTimeFunctionUnit) {
         return new CumulativeFunctionTimer<>(id, obj, countFunction, totalTimeFunction, totalTimeFunctionUnit, getBaseTimeUnit());
     }
 
-    @Override
     protected <T> FunctionCounter newFunctionCounter(Meter.Id id, T obj, ToDoubleFunction<T> countFunction) {
         return new CumulativeFunctionCounter<>(id, obj, countFunction);
     }
 
-    @Override
     protected LongTaskTimer newLongTaskTimer(Meter.Id id, DistributionStatisticConfig distributionStatisticConfig) {
         return new DefaultLongTaskTimer(id, clock, getBaseTimeUnit(), distributionStatisticConfig, false);
     }
 
-    @Override
     protected Meter newMeter(Meter.Id id, Meter.Type type, Iterable<Measurement> measurements) {
         return new DefaultMeter(id, type, measurements);
     }
 
-    @Override
     protected DistributionStatisticConfig defaultHistogramConfig() {
         return DistributionStatisticConfig.builder()
                 .expiry(Duration.ofMinutes(1))
@@ -202,7 +186,9 @@ public class GradleLoggingMeterRegistry extends MeterRegistry {
         // see https://stackoverflow.com/a/3758880/510017
         String humanReadableByteCount(double bytes) {
             int unit = 1024;
-            if (bytes < unit || Double.isNaN(bytes)) return DoubleFormat.decimalOrNan(bytes) + " B";
+            if (bytes < unit || Double.isNaN(bytes)) {
+                return DoubleFormat.decimalOrNan(bytes) + " B";
+            }
             int exp = (int) (Math.log(bytes) / Math.log(unit));
             String pre = "KMGTPE".charAt(exp - 1) + "i";
             return DoubleFormat.decimalOrNan(bytes / Math.pow(unit, exp)) + " " + pre + "B";
@@ -217,7 +203,6 @@ public class GradleLoggingMeterRegistry extends MeterRegistry {
         }
     }
 
-    @Override
     protected TimeUnit getBaseTimeUnit() {
         return TimeUnit.MILLISECONDS;
     }

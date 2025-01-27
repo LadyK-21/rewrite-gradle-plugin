@@ -1,5 +1,5 @@
 /*
- * Copyright ${year} the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,30 +15,35 @@
  */
 package org.openrewrite.gradle;
 
-import org.gradle.api.Project;
-import org.openrewrite.config.RecipeDescriptor;
+import org.gradle.internal.service.ServiceRegistry;
 
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.SortedSet;
+import java.util.List;
 import java.util.function.Consumer;
 
 public interface GradleProjectParser {
-    SortedSet<String> getActiveRecipes();
+    List<String> getActiveRecipes();
 
-    SortedSet<String> getActiveStyles();
+    List<String> getActiveStyles();
 
-    SortedSet<String> getAvailableStyles();
+    List<String> getAvailableStyles();
 
-    Collection<RecipeDescriptor> listRecipeDescriptors();
+    Collection<Path> listSources();
 
-    Collection<Path> listSources(Project project);
+    void discoverRecipes(ServiceRegistry serviceRegistry);
 
-    void run(boolean useAstCache, Consumer<Throwable> onError);
+    /**
+     * @deprecated Use {@link #discoverRecipes(ServiceRegistry)} instead.
+     */
+    @Deprecated
+    default void discoverRecipes(boolean interactive, ServiceRegistry serviceRegistry) {
+        discoverRecipes(serviceRegistry);
+    }
 
-    void dryRun(Path reportPath, boolean dumpGcActivity, boolean useAstCache, Consumer<Throwable> onError);
+    void run(Consumer<Throwable> onError);
 
-    void clearAstCache();
+    void dryRun(Path reportPath, boolean dumpGcActivity, Consumer<Throwable> onError);
 
     void shutdownRewrite();
 }

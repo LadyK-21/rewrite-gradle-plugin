@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,7 @@ package org.openrewrite.gradle;
 
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.TaskAction;
-import org.gradle.api.tasks.options.Option;
 
 import javax.inject.Inject;
 
@@ -33,14 +31,9 @@ public class RewriteRunTask extends AbstractRewriteTask {
         setDescription("Apply the active refactoring recipes");
     }
 
-    @Input
-    public boolean isUseAstCache() {
-        return useAstCache;
-    }
-
     @TaskAction
     public void run() {
-        getProjectParser().run(useAstCache, throwable -> logger.warn("Error during rewrite run", throwable));
+        getProjectParser().run(throwable -> logger.info("Error during rewrite run", throwable));
     }
 
 }

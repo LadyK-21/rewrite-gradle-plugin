@@ -1,52 +1,68 @@
+@file:Suppress("UnstableApiUsage")
+
 import nl.javadude.gradle.plugins.license.LicenseExtension
 import org.gradle.rewrite.build.GradleVersionData
 import org.gradle.rewrite.build.GradleVersionsCommandLineArgumentProvider
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    java
-    kotlin("jvm") version("1.6.20")
-    `java-gradle-plugin`
-    id("com.gradle.plugin-publish") version ("0.15.0")
-    id("com.github.hierynomus.license") version "0.16.1" apply false
-    `maven-publish`
-}
-
-apply(plugin = "license")
-
-pluginBundle {
-    website = "https://github.com/openrewrite/rewrite-gradle-plugin"
-    vcsUrl = "https://github.com/openrewrite/rewrite-gradle-plugin.git"
-    tags = listOf("rewrite", "refactoring", "java", "checkstyle")
+    id("org.jetbrains.kotlin.jvm") version "1.9.0"
+    id("com.gradle.plugin-publish") version "1.1.0"
+    id("com.github.hierynomus.license") version "0.16.1"
+    id("nebula.maven-apache-license")
 }
 
 gradlePlugin {
+    website.set("https://github.com/openrewrite/rewrite-gradle-plugin")
+    vcsUrl.set("https://github.com/openrewrite/rewrite-gradle-plugin.git")
+
     plugins {
         create("rewrite") {
             id = "org.openrewrite.rewrite"
             displayName = "Rewrite"
             description = "Automatically eliminate technical debt"
             implementationClass = "org.openrewrite.gradle.RewritePlugin"
+            tags.set(listOf("rewrite", "refactoring", "remediation", "security", "migration", "java", "checkstyle"))
         }
     }
 }
 
 repositories {
-    mavenLocal()
-    maven {
-        url = uri("https://oss.sonatype.org/content/repositories/snapshots")
+    if (!project.hasProperty("releasing")) {
+        mavenLocal {
+            mavenContent {
+                excludeVersionByRegex(".+", ".+", ".+-rc-?[0-9]*")
+            }
+        }
+
+        maven {
+            url = uri("https://oss.sonatype.org/content/repositories/snapshots")
+        }
     }
-    mavenCentral()
+
+    mavenCentral {
+        mavenContent {
+            excludeVersionByRegex(".+", ".+", ".+-rc-?[0-9]*")
+        }
+    }
+    gradlePluginPortal()
+    google()
 }
 
-val gradleProvided = configurations.create("gradleProvided")
+val latest = if (project.hasProperty("releasing")) {
+    "latest.release"
+} else {
+    "latest.integration"
+}
+
 configurations.all {
     resolutionStrategy {
         cacheChangingModulesFor(0, TimeUnit.SECONDS)
         cacheDynamicVersionsFor(0, TimeUnit.SECONDS)
-        if(name.startsWith("test")) {
+        if (name.startsWith("test")) {
             eachDependency {
-                if(requested.name == "groovy-xml") {
+                if (requested.name == "groovy-xml") {
                     useVersion("3.0.9")
                 }
             }
@@ -55,87 +71,72 @@ configurations.all {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
-}
-
-tasks.named<JavaCompile>("compileJava") {
-    options.isFork = true
-    options.forkOptions.executable = "javac"
-    options.compilerArgs.addAll(listOf("--release", "8"))
-}
-
-val plugin: Configuration by configurations.creating
-
-// Resolving dependency configurations during the configuration phase is a Gradle performance anti-pattern
-// But I don't know a better way than this to keep com.gradle.plugin-publish from publishing the requested version rather than the resolved version
-val latest = if(project.hasProperty("releasing")) {
-    "latest.release"
-} else {
-    "latest.integration"
-}
-val rewriteVersion = configurations.detachedConfiguration(dependencies.create("org.openrewrite:rewrite-core:$latest"))
-    .apply {
-        resolutionStrategy {
-            cacheChangingModulesFor(0, TimeUnit.SECONDS)
-            cacheDynamicVersionsFor(0, TimeUnit.SECONDS)
-        }
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
     }
-    .resolvedConfiguration.firstLevelModuleDependencies.iterator().next().moduleVersion
+}
 
-val rewriteConfName = "rewriteDependencies"
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(8)
+    options.encoding = "UTF-8"
+    options.compilerArgs.add("-parameters")
+    options.isFork = true
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+    }
+}
+
 val rewriteDependencies = configurations.create("rewriteDependencies")
-
-configurations.getByName("compileOnly").extendsFrom(plugin)
+configurations.named("compileOnly").configure {
+    extendsFrom(rewriteDependencies)
+}
 
 dependencies {
-    "rewriteDependencies"("org.openrewrite:rewrite-core:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-hcl:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-java:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-java-11:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-java-8:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-json:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-xml:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-yaml:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-properties:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-protobuf:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-groovy:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-gradle:$rewriteVersion")
-    "rewriteDependencies"("org.openrewrite:rewrite-maven:$rewriteVersion")
-    // Newer versions of checkstyle are compiled with a newer version of Java than is supported with gradle 4.x
-    "rewriteDependencies"("com.puppycrawl.tools:checkstyle:9.3") {
-        isTransitive = false
-    }
-    "rewriteDependencies"("com.fasterxml.jackson.module:jackson-module-kotlin:latest.release")
-    "rewriteDependencies"(platform("org.jetbrains.kotlin:kotlin-bom:1.6.21"))
+    "rewriteDependencies"(platform("org.openrewrite:rewrite-bom:$latest"))
+    "rewriteDependencies"("org.openrewrite:rewrite-core")
+    "rewriteDependencies"("org.openrewrite:rewrite-hcl")
+    "rewriteDependencies"("org.openrewrite:rewrite-java")
+    "rewriteDependencies"("org.openrewrite:rewrite-java-21")
+    "rewriteDependencies"("org.openrewrite:rewrite-java-17")
+    "rewriteDependencies"("org.openrewrite:rewrite-java-11")
+    "rewriteDependencies"("org.openrewrite:rewrite-java-8")
+    "rewriteDependencies"("org.openrewrite:rewrite-json")
+    "rewriteDependencies"("org.openrewrite:rewrite-kotlin:$latest")
+    "rewriteDependencies"("org.openrewrite:rewrite-xml")
+    "rewriteDependencies"("org.openrewrite:rewrite-yaml")
+    "rewriteDependencies"("org.openrewrite:rewrite-properties")
+    "rewriteDependencies"("org.openrewrite:rewrite-protobuf")
+    "rewriteDependencies"("org.openrewrite:rewrite-groovy")
+    "rewriteDependencies"("org.openrewrite:rewrite-gradle")
+    "rewriteDependencies"("org.openrewrite:rewrite-polyglot:$latest")
+    "rewriteDependencies"("org.openrewrite.gradle.tooling:model:$latest")
+    "rewriteDependencies"("org.openrewrite:rewrite-maven")
+    "rewriteDependencies"("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+    "rewriteDependencies"("com.google.guava:guava:latest.release")
+    implementation(platform("org.openrewrite:rewrite-bom:$latest"))
+    compileOnly("com.android.tools.build:gradle:7.0.4")
+    compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:latest.release")
+    compileOnly("com.google.guava:guava:latest.release")
 
-    implementation("org.openrewrite:rewrite-core:$rewriteVersion") {
-        isTransitive = false
-    }
-    compileOnly("org.openrewrite:rewrite-hcl:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-java:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-java-11:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-java-8:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-json:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-xml:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-yaml:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-properties:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-protobuf:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-groovy:$rewriteVersion")
-    compileOnly("org.openrewrite:rewrite-gradle:$rewriteVersion")
-    compileOnly("com.puppycrawl.tools:checkstyle:9.3")
-
-    "gradleProvided"(gradleApi())
-    testImplementation(gradleTestKit())
-    testImplementation("org.junit.jupiter:junit-jupiter-api:latest.release")
-    testImplementation("org.junit.jupiter:junit-jupiter-params:latest.release")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:latest.release")
+    testImplementation(platform("org.junit:junit-bom:latest.release"))
+    testImplementation("org.junit.jupiter:junit-jupiter-api")
+    testImplementation("org.junit.jupiter:junit-jupiter-params")
+    testImplementation("org.openrewrite.tools:jgit:latest.release")
+    testImplementation("org.openrewrite:rewrite-test")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testImplementation("org.assertj:assertj-core:latest.release")
-    testImplementation("org.openrewrite:rewrite-gradle:$rewriteVersion")
-}
 
-tasks.pluginUnderTestMetadata {
-    pluginClasspath.from(plugin)
+    modules {
+        module("com.google.guava:listenablefuture") {
+            replacedBy("com.google.guava:guava", "listenablefuture is part of guava")
+        }
+        module("com.google.collections:google-collections") {
+            replacedBy("com.google.guava:guava", "google-collections is part of guava")
+        }
+    }
 }
 
 project.rootProject.tasks.getByName("postRelease").dependsOn(project.tasks.getByName("publishPlugins"))
@@ -148,13 +149,14 @@ tasks.register<Test>("testGradleNightlies") {
     jvmArgumentProviders.add(GradleVersionsCommandLineArgumentProvider(GradleVersionData::getNightlyVersions))
 }
 
-tasks.withType<Test>() {
+tasks.withType<Test> {
     useJUnitPlatform()
+    // Remove this once we've fixed https://github.com/openrewrite/rewrite-gradle-plugin/issues/132
+    setForkEvery(1)
 }
 
 val gVP = tasks.register("generateVersionsProperties") {
-
-    val outputFile = file("src/main/resources/versions.properties")
+    val outputFile = file("${project.layout.buildDirectory.get().asFile}/rewrite/versions.properties")
     description = "Creates a versions.properties in $outputFile"
     group = "Build"
 
@@ -164,14 +166,14 @@ val gVP = tasks.register("generateVersionsProperties") {
     outputs.file(outputFile)
 
     doLast {
-        if(outputFile.exists()) {
+        if (outputFile.exists()) {
             outputFile.delete()
         } else {
             outputFile.parentFile.mkdirs()
         }
         val resolvedModules = rewriteDependencies.resolvedConfiguration.firstLevelModuleDependencies
         val props = Properties()
-        for(module in resolvedModules) {
+        for (module in resolvedModules) {
             props["${module.moduleGroup}:${module.moduleName}"] = module.moduleVersion
         }
         outputFile.outputStream().use {
@@ -180,69 +182,25 @@ val gVP = tasks.register("generateVersionsProperties") {
     }
 }
 
-tasks.named("processResources") {
-    dependsOn(gVP)
-}
-val versionManifest = tasks.register("writeVersionManifest") {
-    group = "other"
-    description = "Produce a text file containing the version number of this plugin to be used when invoking the plugin from tests"
-
-    val outputFile = project.file("src/test/resources/plugin-version.txt")
-    val version = project.version.toString()
-    inputs.property("version", version)
-    outputs.file(outputFile)
-    doLast {
-        outputFile.parentFile.mkdirs()
-        outputFile.writeText(version)
+tasks.named<Copy>("processResources") {
+    into("rewrite/") {
+        from(gVP)
     }
-}
-val testManifest = tasks.register("writeTestManifest") {
-    group = "other"
-    description = "Produce a text file containing the classpath to be used when invoking the plugin from tests"
-
-    val runtimeClasspath = configurations.named("runtimeClasspath")
-    val outputFile = project.file("src/test/resources/plugin-classpath.txt")
-    dependsOn(runtimeClasspath)
-    dependsOn(gradleProvided)
-
-    outputs.file(outputFile)
-
-    doLast {
-        runtimeClasspath.get().resolve().minus(gradleProvided.resolve())
-
-        val contents = sequenceOf(tasks.named<Jar>("jar").get().archiveFile.get().asFile.absolutePath)
-            .plus(runtimeClasspath.get().resolve()
-                .minus(gradleProvided.resolve())
-                .map(File::getAbsolutePath))
-            .joinToString("\n")
-
-        outputFile.parentFile.mkdirs()
-        outputFile.writeText(contents)
-    }
-}
-
-tasks.named("processTestResources") {
-    dependsOn(testManifest, versionManifest)
 }
 
 tasks.named<Test>("test") {
     systemProperty(
-        GradleVersionsCommandLineArgumentProvider.PROPERTY_NAME,
-        project.findProperty("testedGradleVersion") ?: gradle.gradleVersion
+            "org.openrewrite.test.gradleVersion", project.findProperty("testedGradleVersion") ?: gradle.gradleVersion
     )
-    val jar: Jar = tasks.named<Jar>("jar").get()
-    dependsOn(jar, testManifest, versionManifest)
 }
 
 val testGradle4 = tasks.register<Test>("testGradle4") {
-    systemProperty(GradleVersionsCommandLineArgumentProvider.PROPERTY_NAME, "4.0")
-    // Gradle 4.0 predates support for Java 11
+    systemProperty("org.openrewrite.test.gradleVersion", "4.10")
+    systemProperty("jarLocationForTest", tasks.named<Jar>("jar").get().archiveFile.get().asFile.absolutePath)
+    // Gradle 4 predates support for Java 11
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion.set(JavaLanguageVersion.of(8))
     })
-    val jar: Jar = tasks.named<Jar>("jar").get()
-    dependsOn(jar, testManifest, versionManifest)
-    jvmArgs("-DjarLocationForTest=${jar.archiveFile.get().asFile.absolutePath}")
 }
 tasks.named("check").configure {
     dependsOn(testGradle4)
@@ -256,19 +214,4 @@ configure<LicenseExtension> {
     strictCheck = true
     exclude("**/versions.properties")
     exclude("**/*.txt")
-}
-
-// This is here to silence a warning from Gradle about tasks using each-others outputs without declaring a dependency
-tasks.named("licenseMain") {
-    dependsOn(gVP)
-}
-tasks.named("licenseTest") {
-    dependsOn(testManifest, versionManifest)
-}
-// The plugin that adds this task does it weirdly so it isn't available for configuration yet.
-// So have this behavior applied to it whenever it _is_ added.
-tasks.configureEach {
-    if(name == "publishPluginJar") {
-        dependsOn(gVP)
-    }
 }

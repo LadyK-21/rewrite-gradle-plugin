@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package org.openrewrite.gradle
-
 
 import io.rsocket.Payload
 import io.rsocket.RSocket
@@ -54,7 +53,7 @@ class RewriteMetricsPluginTests
         settingsFile = projectDir.newFile('settings.gradle')
         settingsFile << """\
             rootProject.name = 'hello-world'
-            include 'a', 'b'    
+            include 'a', 'b'
         """.stripIndent()
 
         projectDir.newFolder('b')
@@ -69,16 +68,16 @@ class RewriteMetricsPluginTests
                 id 'org.openrewrite.rewrite-metrics'
                 id 'org.openrewrite.rewrite-checkstyle' apply false
             }
-            
+
             rewriteMetrics {
                 metricsUri = URI.create('tcp://localhost:7102')
             }
-            
+
             subprojects {
                 apply plugin: 'java'
                 apply plugin: 'checkstyle'
                 apply plugin: 'org.openrewrite.rewrite-checkstyle'
-            
+
                 repositories {
                     mavenLocal()
                     mavenCentral()

@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 the original author or authors.
+ * Copyright 2025 the original author or authors.
  * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package org.openrewrite.gradle;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.specs.Specs;
-import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
 
 import javax.inject.Inject;
@@ -28,11 +28,16 @@ public class RewriteDryRunTask extends AbstractRewriteTask {
 
     private static final Logger logger = Logging.getLogger(RewriteDryRunTask.class);
 
-    // This @Internal is a lie, the correct annotation here would be @OutputFile
-    // On Gradle 4.0 annotating this with @OutputFile triggers a bug that deadlocks Gradle and the task can never begin executing
-    @Internal
+    @OutputFile
     public Path getReportPath() {
-        return getProject().getBuildDir().toPath().resolve("reports").resolve("rewrite").resolve("rewrite.patch");
+        return getProjectLayout()
+                .getBuildDirectory()
+                .get()
+                .getAsFile()
+                .toPath()
+                .resolve("reports")
+                .resolve("rewrite")
+                .resolve("rewrite.patch");
     }
 
     @Inject
@@ -44,6 +49,6 @@ public class RewriteDryRunTask extends AbstractRewriteTask {
 
     @TaskAction
     public void run() {
-        getProjectParser().dryRun(getReportPath(), dumpGcActivity, useAstCache, throwable -> logger.warn("Error during rewrite dry run", throwable));
+        getProjectParser().dryRun(getReportPath(), dumpGcActivity, throwable -> logger.info("Error during rewrite dry run", throwable));
     }
 }
